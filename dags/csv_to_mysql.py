@@ -53,14 +53,18 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 
 
 def read_csv(**kwargs):
-    
+    ti = kwargs['ti']
+
+    # Get the last processed file position from XCom (set it to 0 if it's the first run)
+    last_processed_position = ti.xcom_pull(task_ids='read_csv', key='last_processed_position') or 0
+
     csv_file_path = os.path.join(current_directory, '..', 'data', 'data.csv')
 
     try:
         with open(csv_file_path, 'r') as f:
+            # Move the file pointer to the last processed position
+            f.seek(last_processed_position)
             reader = csv.DictReader(f)
-            # Skip the first row (header)
-            next(reader)
 
             # Process CSV rows
             data = []
@@ -70,6 +74,10 @@ def read_csv(**kwargs):
                 logging.info("Row: {}".format(row))
                 data.append(row)
 
+            # Store the new file position in XCom
+            new_position = f.tell()
+            ti.xcom_push(key='last_processed_position', value=new_position)
+
         return data
 
     except FileNotFoundError:
@@ -77,7 +85,6 @@ def read_csv(**kwargs):
     except Exception as e:
         logging.error("Error while reading CSV file")
         logging.error(traceback.format_exc())
-
 
 
 def load_to_mysql(**context):
@@ -146,6 +153,7 @@ with dag:
     read_csv = PythonOperator(
         task_id='read_csv',
         python_callable=read_csv,
+        provide_context=True,
         do_xcom_push=True
     )
     
