@@ -7,7 +7,7 @@ from airflow.sensors.filesystem import FileSensor
 from datetime import datetime, timedelta
 import csv
 import logging
-
+import traceback
 
 
 create_table_sql = '''
@@ -46,21 +46,20 @@ dag = DAG(
     'csv_to_mysql',
     default_args=default_args,
     description='Reads CSV file and updates MySQL database',
-    schedule_interval='@once'
+    schedule_interval='*/1 * * * *'
 )
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
+def read_csv(csv_file_path):
 
-def read_csv(**kwargs):
-    
     csv_file_path = os.path.join(current_directory, '..', 'data', 'data.csv')
 
     try:
         with open(csv_file_path, 'r') as f:
+            # Move the file pointer to the last processed position
+            # f.seek(last_processed_position)
             reader = csv.DictReader(f)
-            # Skip the first row (header)
-            next(reader)
 
             # Process CSV rows
             data = []
@@ -70,27 +69,28 @@ def read_csv(**kwargs):
                 logging.info("Row: {}".format(row))
                 data.append(row)
 
-        return data
-
     except FileNotFoundError:
         logging.error("CSV file not found: {}".format(csv_file_path))
     except Exception as e:
         logging.error("Error while reading CSV file")
         logging.error(traceback.format_exc())
+    return data
 
 
 
-def load_to_mysql(**context):
+def read_csv_and_load_to_mysql(csv_file_path):
+    # Leemos el archivo CSV
+    data = read_csv(csv_file_path)
+    
+    # Cargamos los datos en MySQL
+    load_to_mysql(csv_file_path, data)
+
+
+def load_to_mysql(csv_file_path, data):
     try:
         # Get the MySQL connection details
         mysql_hook = MySqlHook(mysql_conn_id='mysql_local')
         conn = mysql_hook.get_conn()
-
-        # Get the new rows to add to MySQL database
-        new_rows = context['task_instance'].xcom_pull(task_ids='read_csv')
-
-        # Define the inserts variable as an empty list
-        inserts = []
 
         # Execute the SELECT statement to check which rows already exist in MySQL database
         with conn.cursor() as cursor:
@@ -102,7 +102,8 @@ def load_to_mysql(**context):
         existing_rows_set = set(row[0] for row in existing_rows)
 
         # Append the new rows to the inserts list if they don't already exist in MySQL database
-        for row in new_rows:
+        inserts = []
+        for row in data:
             if row['order_number'] not in existing_rows_set:
                 columns = ', '.join(row.keys())
                 values = ', '.join(["'" + value.replace("'", "''") + "'" if value is not None else 'NULL' for value in row.values()])
@@ -118,10 +119,9 @@ def load_to_mysql(**context):
     except Exception as e:
         logging.exception("Error while loading data to MySQL")
 
-
 with dag:
 
-    
+
     # Create table if not exists
     create_table = MySqlOperator(
         task_id='create_table',
@@ -138,22 +138,16 @@ with dag:
         task_id='file_sensor',
         filepath=csv_file_path,
         fs_conn_id='local_filesystem',
-        poke_interval=1,
+        poke_interval=10,
         dag=dag
     )
 
-    # Read CSV file
-    read_csv = PythonOperator(
-        task_id='read_csv',
-        python_callable=read_csv,
-        do_xcom_push=True
+    read_csv_and_load_to_mysql_task = PythonOperator(
+        task_id='read_csv_and_load_to_mysql',
+        python_callable=read_csv_and_load_to_mysql,
+        op_args=[csv_file_path],
+        dag=dag,
     )
-    
-    # Load data from CSV to MySQL database
-    load_to_mysql = PythonOperator(
-        task_id='load_to_mysql',
-        python_callable=load_to_mysql,
-        provide_context=True
-    )
-    
-    create_table >> file_sensor >> read_csv >> load_to_mysql
+
+    create_table >> file_sensor >> read_csv_and_load_to_mysql_task
+
