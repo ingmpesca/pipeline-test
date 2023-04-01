@@ -1,7 +1,7 @@
 FROM python:3.8-slim-buster
 
 # Install dependencies
-RUN pip install --no-cache-dir apache-airflow[mysql]==2.5.2 apache-airflow-providers-ftp
+RUN pip install --no-cache-dir apache-airflow[mysql]==2.5.2
 
 # Set the working directory
 WORKDIR /usr/local/airflow
