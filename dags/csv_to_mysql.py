@@ -58,7 +58,6 @@ def read_csv(csv_file_path):
     try:
         with open(csv_file_path, 'r') as f:
             # Move the file pointer to the last processed position
-            # f.seek(last_processed_position)
             reader = csv.DictReader(f)
 
             # Process CSV rows

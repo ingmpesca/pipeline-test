@@ -58,6 +58,6 @@ for i in range(5):
     data.append(row)
 
 # Agregar las filas al archivo CSV
-with open('pipeline-test/data/data.csv', mode='a', newline='') as csv_file:
+with open('/Users/mariopesca/Documentos/learning/dataEngineer/pipeline-test/data/data.csv', mode='a', newline='') as csv_file:
     writer = csv.writer(csv_file)
     writer.writerows(data)
